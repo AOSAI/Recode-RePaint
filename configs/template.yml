@@ -1,0 +1,89 @@
+# reproduction for yaml's structure
+
+model:
+  image_size: 256
+  num_channels: 128 # default 256
+  num_res_blocks: 2
+  channel_mult: ""
+  learn_sigma: true
+  class_cond: False
+  use_checkpoint: False
+  use_scale_shift_norm: True
+  dropout: 0.0
+  resblock_updown: true
+  use_fp16: false
+  # 注意力机制相关参数
+  num_heads: 4
+  num_head_channels: 64
+  num_heads_upsample: -1
+  attention_resolutions: 32,16,8
+  use_new_attention_order: false
+
+diffusion:
+  steps: 1000
+  learn_sigma: true
+  sigma_small: False
+  noise_schedule: linear
+  use_kl: False
+  predict_xstart: False
+  rescale_timesteps: True
+  rescale_learned_sigmas: True
+  timestep_respacing: "250"
+
+classifier:
+  image_size: 256
+  classifier_use_fp16: false
+  classifier_width: 128
+  classifier_depth: 2
+  classifier_attention_resolutions: 32,16,8
+  classifier_use_scale_shift_norm: true
+  classifier_resblock_updown: true
+  classifier_pool: attention
+
+sampling:
+  clip_denoised: True
+  num_samples: 100
+  # batch_size: 16
+  use_ddim: False
+  model_path: ./data/pretrained/celeba256_250000.pt
+  name: template
+  show_progress: true
+  # 仅在条件生成时使用的参数
+  classifier_scale: 4.0
+  classifier_path: ""
+
+lr_kernel_n_std: 2
+latex_name: RePaint
+method_name: Repaint
+image_size: 256
+inpa_inj_sched_prev: true
+n_jobs: 1
+print_estimated_vars: true
+inpa_inj_sched_prev_cumnoise: false
+schedule_jump_params:
+  t_T: 250
+  n_sample: 1
+  jump_length: 10
+  jump_n_sample: 10
+data:
+  eval:
+    paper_face_mask:
+      mask_loader: true
+      gt_path: ./data/datasets/gts/face
+      mask_path: ./data/datasets/gt_keep_masks/face
+      image_size: 256
+      class_cond: false
+      deterministic: true
+      random_crop: false
+      random_flip: false
+      return_dict: true
+      drop_last: false
+      batch_size: 1
+      return_dataloader: true
+      offset: 0
+      max_len: 8
+      paths:
+        srs: ./log/face_example/inpainted
+        lrs: ./log/face_example/gt_masked
+        gts: ./log/face_example/gt
+        gt_keep_masks: ./log/face_example/gt_keep_mask
