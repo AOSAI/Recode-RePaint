@@ -38,7 +38,7 @@ class NoneDict(defaultdict):
     def return_None():
         return None
 
-    # 手动实现（conf.xxx）点访问；__getitem__ 的字典访问是 defaultdict 自带的
+    # 手动实现（conf.xxx）方式的递归属性查找。
     def __getattr__(self, attr):
         return self.get(attr)
 
@@ -47,24 +47,38 @@ class Default_Conf(NoneDict):
     def __init__(self):
         pass
 
-    def get_dataloader(self, dset='train', dsName=None, batch_size=None, return_dataset=False):
+    # 3.1 获取 data -> eval 下的自定义 key 的名称
+    def get_default_eval_name(self):
+        candidates = self['data']['eval'].keys()
+        if len(candidates) != 1:
+            raise RuntimeError(
+                f"Need exactly one candidate for {self.name}: {candidates}")
+        return list(candidates)[0]
 
-        if batch_size is None:
-            batch_size = self.batch_size
+    # 3.2 从 image_datasets.py 中获取图像数据加载器
+    def get_dataloader(self, dset='train', dsName=None, batch_size=None, return_dataset=False):
+        batch_size = self.batch_size if batch_size is None else batch_size
 
         candidates = self['data'][dset]
         ds_conf = candidates[dsName].copy()
 
+        # 检查 ds_conf 中有没有 'mask_loader' 这个 key，有就返回，没有就是默认的 False
         if ds_conf.get('mask_loader', False):
-            from guided_diffusion.image_datasets import load_data_inpa
+            from image_datasets import load_data_inpa
             return load_data_inpa(**ds_conf, conf=self)
         else:
             raise NotImplementedError()
 
     def get_debug_variance_path(self):
-        return os.path.expanduser(os.path.join(self.get_default_eval_conf()['paths']['root'], 'debug/debug_variance'))
+        return os.path.expanduser(
+            os.path.join(self.get_default_eval_conf()['paths']['root'], 'debug/debug_variance')
+        )
 
-    def eval_imswrite(self, srs=None, img_names=None, dset=None, name=None, ext='png', lrs=None, gts=None, gt_keep_masks=None, verify_same=True):
+    # 4.7.1 保存 inpainting 相关的图像
+    def eval_imswrite(
+        self, srs=None, img_names=None, dset=None, name=None, ext='png', 
+        lrs=None, gts=None, gt_keep_masks=None, verify_same=True
+    ):
         img_names = to_file_ext(img_names, ext)
 
         if dset is None:
@@ -90,13 +104,6 @@ class Default_Conf(NoneDict):
             lrs_dir_path = expanduser(
                 self['data'][dset][name]['paths']['lrs'])
             write_images(lrs, img_names, lrs_dir_path)
-
-    def get_default_eval_name(self):
-        candidates = self['data']['eval'].keys()
-        if len(candidates) != 1:
-            raise RuntimeError(
-                f"Need exactly one candidate for {self.name}: {candidates}")
-        return list(candidates)[0]
 
     def pget(self, name, default=None):
         if '.' in name:

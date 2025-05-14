@@ -43,7 +43,6 @@ classifier:
 sampling:
   clip_denoised: True
   num_samples: 100
-  # batch_size: 16
   use_ddim: False
   model_path: ./data/pretrained/celeba256_250000.pt
   name: template
