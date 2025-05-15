@@ -1,25 +1,29 @@
 import torch
 import numpy as np
+from collections import defaultdict
 from noise_schedule import noise_related_calculate
-from diff_utils import (ModelMeanType, ModelVarType, LossType, 
-                    extract, mean_flat, normal_kl, 
-                    discretized_gaussian_log_likelihood)
+from tools.scheduler import get_schedule_jump
+from diff_utils import (ModelMeanType, ModelVarType, LossType, mean_flat, normal_kl, 
+                    extract, discretized_gaussian_log_likelihood)
 
 
 # -------------- 基类 --------------
 class GaussianDiffusion:
-    def __init__(self, *, betas, model_mean_type, model_var_type, 
-                 loss_type, rescale_timesteps=False):
+    def __init__(
+        self, *, betas, model_mean_type, model_var_type, loss_type, 
+        rescale_timesteps=False
+    ):
         # 将传入的参数注册为 self 全局变量
         self.model_mean_type = model_mean_type
         self.model_var_type = model_var_type
         self.loss_type = loss_type
         self.rescale_timesteps = rescale_timesteps
 
+        # 获取 respace 后的 betas 序列，计算新的 num_timesteps
         self.betas = np.asarray(betas)
         self.num_timesteps = int(betas.shape[0])
 
-        # 获取所有噪声调度参数，并注册为 self.xxx
+        # 通过 betas 计算所有噪声调度参数，并注册为成员变量
         noise_schedule = noise_related_calculate(betas)
         for k, v in noise_schedule.items():
             setattr(self, k, v)
@@ -85,7 +89,7 @@ class GaussianDiffusion:
 
         B, C = x.shape[:2] 
         assert t.shape == (B,)
-        model_output = model(x, self._scale_timesteps(t), **model_kwargs)
+        model_output = model(x, t, **model_kwargs)
 
         if self.model_var_type in [ModelVarType.LEARNED, ModelVarType.LEARNED_RANGE]:
             # --------------- 可学习方差，通道数加倍 ---------------
@@ -174,11 +178,6 @@ class GaussianDiffusion:
         # --------------- 在第一个时间步返回解码器 NLL，否则返回 KL ---------------
         output = torch.where((t == 0), decoder_nll, kl)
         return {"output": output, "pred_xstart": out["pred_xstart"]}
-    
-    def _scale_timesteps(self, t):
-        if self.rescale_timesteps:
-            return t.float() * (1000.0 / self.num_timesteps)
-        return t
 
     def training_losses(self, model, x_start, t, model_kwargs=None, noise=None):
         """损失函数调用入口, 用于计算单个时间步下的损失值"""
@@ -199,7 +198,7 @@ class GaussianDiffusion:
                 # loss 尺度跟 MSE 类型对齐
                 terms["loss"] *= self.num_timesteps
         elif self.loss_type == LossType.MSE or self.loss_type == LossType.RESCALED_MSE:
-            model_output = model(x_t, self._scale_timesteps(t), **model_kwargs)
+            model_output = model(x_t, t, **model_kwargs)
             
             # ------------ 如果方差可学习，使用 KL/NLL 计算 ------------
             if self.model_var_type in [ModelVarType.LEARNED, ModelVarType.LEARNED_RANGE]:
@@ -238,77 +237,6 @@ class GaussianDiffusion:
 
         return terms
     
-    def _prior_bpd(self, x_start):
-        """
-        获取变分下限的先验 KL 项，单位为比特/比特。该项无法优化，因为它只取决于编码器。
-
-        :param x_start: the [N x C x ...] tensor of inputs.
-        :return: a batch of [N] KL values (in bits), one per batch element.
-        """
-        batch_size = x_start.shape[0]
-        t = torch.tensor([self.num_timesteps - 1] * batch_size, device=x_start.device)
-        qt_mean, _, qt_log_variance = self.q_mean_variance(x_start, t)
-        kl_prior = normal_kl(
-            mean1=qt_mean, logvar1=qt_log_variance, mean2=0.0, logvar2=0.0
-        )
-        return mean_flat(kl_prior) / np.log(2.0)
-
-    def calc_bpd_loop(self, model, x_start, clip_denoised=True, model_kwargs=None):
-        """
-        计算整个变分下限（以每比特为单位）以及其他相关数量。
-
-        :param model: 评估损失的模型
-        :param x_start: the [N x C x ...] tensor of inputs.
-        :param clip_denoised: if True, clip denoised samples.
-        :param model_kwargs: if not None, a dict of extra keyword arguments to
-            pass to the model. This can be used for conditioning.
-
-        :return: a dict containing the following keys:
-                 - total_bpd: 每个批次元素的总变分下限。
-                 - prior_bpd: 下限中的前项。
-                 - vb: 下界项的 [N x T] 张量。
-                 - xstart_mse: 每个时间步的 x_0 MSE 的 [N x T] 张量。
-                 - mse: 每个时间步的ε MSE 的 [N x T] 张量。
-        """
-        device = x_start.device
-        batch_size = x_start.shape[0]
-
-        vb = []
-        xstart_mse = []
-        mse = []
-        for t in list(range(self.num_timesteps))[::-1]:
-            t_batch = torch.tensor([t] * batch_size, device=device)
-            noise = torch.randn_like(x_start)
-            x_t = self.q_sample(x_start=x_start, t=t_batch, noise=noise)
-            # Calculate VLB term at the current timestep
-            with torch.no_grad():
-                out = self._vb_terms_bpd(
-                    model,
-                    x_start=x_start,
-                    x_t=x_t,
-                    t=t_batch,
-                    clip_denoised=clip_denoised,
-                    model_kwargs=model_kwargs,
-                )
-            vb.append(out["output"])
-            xstart_mse.append(mean_flat((out["pred_xstart"] - x_start) ** 2))
-            eps = self._predict_eps_from_xstart(x_t, t_batch, out["pred_xstart"])
-            mse.append(mean_flat((eps - noise) ** 2))
-
-        vb = torch.stack(vb, dim=1)
-        xstart_mse = torch.stack(xstart_mse, dim=1)
-        mse = torch.stack(mse, dim=1)
-
-        prior_bpd = self._prior_bpd(x_start)
-        total_bpd = vb.sum(dim=1) + prior_bpd
-        return {
-            "total_bpd": total_bpd,
-            "prior_bpd": prior_bpd,
-            "vb": vb,
-            "xstart_mse": xstart_mse,
-            "mse": mse,
-        }
-    
     
 # -------------- DDPM 原始采样器 --------------
 class SamplerDDPM:
@@ -334,41 +262,77 @@ class SamplerDDPM:
         return {"sample": sample, "pred_xstart": out["pred_xstart"]}
     
     def p_sample_loop(
-        self, model, shape, device=None, noise=None, progress=False,
-        clip_denoised=True, denoised_fn=None, model_kwargs=None,
+        self, model, shape, device=None, noise=None, progress=False, cond_fn=None,
+        clip_denoised=True, denoised_fn=None, model_kwargs=None, conf=None
     ):
         """ 从纯噪声开始反复调用 p_sample 采样出最终图像 """
+        if device is None:
+            device = next(model.parameters()).device
+        assert isinstance(shape, (tuple, list))
         if noise is not None:
-            x_t = noise
+            image_after_step = noise
         else:
-            x_t = torch.randn(shape, device=device)
-        
-        indices = reversed(range(self.num_timesteps))
-        if progress:
-            from tqdm.auto import tqdm
-            indices = tqdm(indices)
+            image_after_step = torch.randn(*shape, device=device)
 
-        with torch.no_grad():
-            for i in indices:
-                t = torch.full((shape[0],), i, device=device, dtype=torch.long)
-                x_t = self.p_sample(
-                    model, x_t, t, model_kwargs=model_kwargs,
-                    clip_denoised=clip_denoised, denoised_fn=denoised_fn
-                )
+        self.gt_noises = None  # reset for next image
+        pred_xstart = None
+        idx_wall = -1
+        sample_idxs = defaultdict(lambda: 0)
 
-        return x_t["sample"]
+        if conf.schedule_jump_params:
+            # 获取 RePaint 回跳机制下的 新时间步
+            times = get_schedule_jump(**conf.schedule_jump_params)
+
+            # 构造 “相邻时间对”；是否启用进度条显示
+            time_pairs = list(zip(times[:-1], times[1:]))
+            if progress:
+                from tqdm.auto import tqdm
+                time_pairs = tqdm(time_pairs)
+
+            for t_last, t_cur in time_pairs:
+                idx_wall += 1
+                t_last_t = torch.tensor([t_last] * shape[0], device=device)
+
+                if t_cur < t_last:  # reverse
+                    with torch.no_grad():
+                        image_before_step = image_after_step.clone()
+                        out = self.p_sample(
+                            model, image_after_step, t_last_t,
+                            clip_denoised=clip_denoised,
+                            denoised_fn=denoised_fn,
+                            cond_fn=cond_fn,
+                            model_kwargs=model_kwargs,
+                            conf=conf,
+                            pred_xstart=pred_xstart
+                        )
+                        image_after_step = out["sample"]
+                        pred_xstart = out["pred_xstart"]
+                        sample_idxs[t_cur] += 1
+                        yield out
+                else:
+                    t_shift = conf.get('inpa_inj_time_shift', 1)
+
+                    image_before_step = image_after_step.clone()
+                    image_after_step = self.undo(
+                        image_before_step, image_after_step,
+                        est_x_0=out['pred_xstart'], t=t_last_t+t_shift, debug=False)
+                    pred_xstart = out["pred_xstart"]
+
+        return image_after_step["sample"]
     
     def sample(
-        self, model, image_size, batch_size=16, clip_denoised=True, model_kwargs=None
+        self, model, batch_size, image_size, device, clip_denoised=True, model_kwargs=None,
+        cond_fn=None, progress=True, return_all=False, conf=None
     ):
         """外部调用入口，封装 p_sample_loop"""
         shape = (batch_size, 3, image_size, image_size)
-        device = next(model.parameters()).device  # 👈 自动获取模型所在设备
-        return self.p_sample_loop(
-            model, shape, device, 
-            clip_denoised=clip_denoised, model_kwargs=model_kwargs
+        results = self.p_sample_loop(
+            model, shape, device, clip_denoised=clip_denoised, model_kwargs=model_kwargs,
+            cond_fn=cond_fn, progress=progress, conf=conf
         )
+        return results if return_all else results["sample"]
     
+
 # -------------- DDIM 加速采样器 --------------
 class SamplerDDIM:
     def __init__(self, diffusion: GaussianDiffusion):

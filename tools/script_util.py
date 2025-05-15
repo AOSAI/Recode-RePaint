@@ -104,10 +104,6 @@ def create_gaussian_diffusion(
 
     betas = get_noise_schedule(noise_schedule, steps, use_scale=True)
 
-    # if conf.use_value_logger:
-    #     conf.value_logger.add_value(
-    #         betas, 'betas create_gaussian_diffusion')
-
     if use_kl:
         loss_type = LossType.RESCALED_KL
     elif rescale_learned_sigmas:

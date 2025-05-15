@@ -1,31 +1,25 @@
-from functools import lru_cache
 import os
-import torch
 from PIL import Image
-
 from collections import defaultdict
-from os.path import isfile, expanduser
+from os.path import expanduser
 
-def imwrite(path=None, img=None):
-    Image.fromarray(img).save(path)
 
+# 将列表中的图像名称转换成 ext(PNG) 的后缀
 def to_file_ext(img_names, ext):
     img_names_out = []
     for img_name in img_names:
         splits = img_name.split('.')
-        if not len(splits) == 2:
-            raise RuntimeError("File name needs exactly one '.':", img_name)
+        assert len(splits) == 2, f"File name needs exactly one '.': {img_name}"
         img_names_out.append(splits[0] + '.' + ext)
-
     return img_names_out
 
+    
+# 将 nparray 图像数据保存为图片
 def write_images(imgs, img_names, dir_path):
     os.makedirs(dir_path, exist_ok=True)
-
     for image_name, image in zip(img_names, imgs):
         out_path = os.path.join(dir_path, image_name)
-        imwrite(img=image, path=out_path)
-
+        Image.fromarray(image).save(out_path)
 
 
 class NoneDict(defaultdict):
@@ -69,53 +63,27 @@ class Default_Conf(NoneDict):
         else:
             raise NotImplementedError()
 
-    def get_debug_variance_path(self):
-        return os.path.expanduser(
-            os.path.join(self.get_default_eval_conf()['paths']['root'], 'debug/debug_variance')
-        )
-
     # 4.7.1 保存 inpainting 相关的图像
     def eval_imswrite(
         self, srs=None, img_names=None, dset=None, name=None, ext='png', 
-        lrs=None, gts=None, gt_keep_masks=None, verify_same=True
+        lrs=None, gts=None, gt_keep_masks=None,
     ):
-        img_names = to_file_ext(img_names, ext)
-
-        if dset is None:
-            dset = self.get_default_eval_name()
-
-        max_len = self['data'][dset][name].get('max_len')
+        img_names = to_file_ext(img_names, ext)  # 更改图像的后缀格式至 PNG
+        paths = self['data'][dset][name]['paths']
 
         if srs is not None:
-            sr_dir_path = expanduser(self['data'][dset][name]['paths']['srs'])
+            sr_dir_path = expanduser(paths['srs'])
             write_images(srs, img_names, sr_dir_path)
 
         if gt_keep_masks is not None:
-            mask_dir_path = expanduser(
-                self['data'][dset][name]['paths']['gt_keep_masks'])
+            mask_dir_path = expanduser(paths['gt_keep_masks'])
             write_images(gt_keep_masks, img_names, mask_dir_path)
 
-        gts_path = self['data'][dset][name]['paths'].get('gts')
-        if gts is not None and gts_path:
-            gt_dir_path = expanduser(gts_path)
+        if gts is not None and paths.get("gts"):
+            gt_dir_path = expanduser(paths.get("gts"))
             write_images(gts, img_names, gt_dir_path)
 
         if lrs is not None:
-            lrs_dir_path = expanduser(
-                self['data'][dset][name]['paths']['lrs'])
+            lrs_dir_path = expanduser(paths['lrs'])
             write_images(lrs, img_names, lrs_dir_path)
 
-    def pget(self, name, default=None):
-        if '.' in name:
-            names = name.split('.')
-        else:
-            names = [name]
-
-        sub_dict = self
-        for name in names:
-            sub_dict = sub_dict.get(name, default)
-
-            if sub_dict == None:
-                return default
-
-        return sub_dict

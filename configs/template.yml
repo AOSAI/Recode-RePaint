@@ -16,14 +16,14 @@ model:
   num_heads: 4
   num_head_channels: 64
   num_heads_upsample: -1
-  attention_resolutions: 32,16,8
+  attention_resolutions: "32,16,8"
   use_new_attention_order: false
 
 diffusion:
   steps: 1000
   learn_sigma: true
   sigma_small: False
-  noise_schedule: linear
+  noise_schedule: "linear"
   use_kl: False
   predict_xstart: False
   rescale_timesteps: True
@@ -35,18 +35,18 @@ classifier:
   classifier_use_fp16: false
   classifier_width: 128
   classifier_depth: 2
-  classifier_attention_resolutions: 32,16,8
+  classifier_attention_resolutions: "32,16,8"
   classifier_use_scale_shift_norm: true
   classifier_resblock_updown: true
   classifier_pool: attention
 
 sampling:
   clip_denoised: True
+  show_progress: true
   num_samples: 100
   use_ddim: False
   model_path: ./data/pretrained/celeba256_250000.pt
   name: template
-  show_progress: true
   # 仅在条件生成时使用的参数
   classifier_scale: 4.0
   classifier_path: ""
@@ -54,16 +54,17 @@ sampling:
 lr_kernel_n_std: 2
 latex_name: RePaint
 method_name: Repaint
-image_size: 256
 inpa_inj_sched_prev: true
 n_jobs: 1
 print_estimated_vars: true
 inpa_inj_sched_prev_cumnoise: false
+
 schedule_jump_params:
   t_T: 250
   n_sample: 1
   jump_length: 10
   jump_n_sample: 10
+
 data:
   eval:
     paper_face_mask:

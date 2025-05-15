@@ -7,8 +7,7 @@ from noise_schedule import noise_related_calculate
 def space_timesteps(num_timesteps, section_counts):
     """
     num_timesteps: 原始过程中要分割的扩散步骤数。
-    section_counts: 一个数字列表，或是包含逗号分隔数字的字符串。
-                    特例: ddimN 的情况下,  N 是 DDIM 论文中的步长。
+    section_counts: 一个数字列表，或是包含逗号分隔数字的字符串。特例: ddimN
     :return: 更新后的一组扩散时间步。
     """
     # 如果传递的 section_counts 是一个字符串
@@ -22,10 +21,6 @@ def space_timesteps(num_timesteps, section_counts):
             for i in range(1, num_timesteps):
                 if len(range(0, num_timesteps, i)) == desired_count:
                     return set(range(0, num_timesteps, i))
-            # 1.3 如果找不到恰好对得上的整数间隔，就会报错
-            raise ValueError(
-                f"cannot create exactly {num_timesteps} steps with an integer stride"
-            )
         # 2. 非 DDIM，明确分段策略。假设传入的是 "10,10,10"，得到一个 [10, 10, 10] 的列表
         section_counts = [int(x) for x in section_counts.split(",")]
     
@@ -99,6 +94,12 @@ class SpacedDiffusion(GaussianDiffusion):
 
     def training_losses(self, model, *args, **kwargs):
         return super().training_losses(self._wrap_model(model), *args, **kwargs)
+    
+    def condition_mean(self, cond_fn, *args, **kwargs):
+        return super().condition_mean(self._wrap_model(cond_fn), *args, **kwargs)
+
+    def condition_score(self, cond_fn, *args, **kwargs):
+        return super().condition_score(self._wrap_model(cond_fn), *args, **kwargs)
 
     # 模型包装器，构造并返回 _WrappedModel 对象。目的是为了改写输入的时间步。
     def _wrap_model(self, model):
@@ -125,7 +126,8 @@ class _WrappedModel:
         # 有些模型默认 timestep 是 [0, 1000] 之间的 float；
         # 如果原始 diffusion 用了非 1000 步的计划，就会 rescale 一下。
         if self.rescale_timesteps:
-            new_ts = new_ts.float() * (1000.0 / self.original_num_steps)
+            raise NotImplementedError()  # 禁用 rescale_timesteps
+            # new_ts = new_ts.float() * (1000.0 / self.original_num_steps)
 
         # 现在模型输入的是原始时间步 t，一切恢复正常
         return self.model(x, new_ts, **kwargs)

@@ -1,7 +1,7 @@
 """
 Like image_sample.py, but use a noisy image classifier to guide the sampling
 process towards more realistic images.
-与 image_sample.py类似, 但使用噪声图像分类器来引导采样过程, 以获得更真实的图像。
+与 image_sample.py 类似, 但使用噪声图像分类器来引导采样过程, 以获得更真实的图像。
 """
 
 import torch as th
@@ -21,7 +21,7 @@ from tools.script_util import (
     create_classifier_model, load_config,
 )
 
-# 调整数据格式
+# 保存图像前的数据格式调整
 def toU8(sample):
     if sample is None:
         return sample
@@ -79,7 +79,6 @@ def main(conf: conf_base.Default_Conf):
         assert y is not None
         return model(x, t, y if conf.model.class_cond else None, gt=gt)
 
-    all_images = []  # 采样图像的保存列表
     dset = 'eval'
     eval_name = conf.get_default_eval_name()  # 获取自定义的 key1
     dl = conf.get_dataloader(dset=dset, dsName=eval_name)  # 通过 key1 字典加载图像
@@ -118,11 +117,12 @@ def main(conf: conf_base.Default_Conf):
         # 4.5 执行采样
         result = sample_fn(
             model_fn,
-            (batch_size, 3, conf.image_size, conf.image_size),
-            clip_denoised=conf.clip_denoised,
+            batch_size, 
+            conf.model.image_size,
+            device=device,
+            clip_denoised=conf.sampling.clip_denoised,
             model_kwargs=model_kwargs,
             cond_fn=cond_fn,
-            device=device,
             progress=show_progress,
             return_all=True,
             conf=conf
@@ -139,7 +139,7 @@ def main(conf: conf_base.Default_Conf):
         # 4.7 执行保存操作
         conf.eval_imswrite(
             srs=srs, gts=gts, lrs=lrs, gt_keep_masks=gtkm,
-            img_names=batch['GT_name'], dset=dset, name=eval_name, verify_same=False
+            img_names=batch['GT_name'], dset=dset, name=eval_name
         )
 
     print("sampling complete")
