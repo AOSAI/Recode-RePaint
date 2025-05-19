@@ -1,7 +1,7 @@
 import yaml
-from models import diffusion as gd
 from models.respace import SpacedDiffusion, space_timesteps
-from models.unet import UNetModel, EncoderUNetModel
+from models.unet import UNetModel
+from models.unet2 import EncoderUNetModel
 from models.noise_schedule import get_noise_schedule
 from models.diff_utils import ModelMeanType, ModelVarType, LossType
 
@@ -38,7 +38,7 @@ def create_model(
     num_head_channels=-1, num_heads_upsample=-1,
     use_scale_shift_norm=False, dropout=0,
     resblock_updown=False, use_fp16=False,
-    use_new_attention_order=False,
+    use_new_attention_order=False
 ):
     channel_mult = get_channel_mult(channel_mult, image_size)
 
@@ -139,6 +139,6 @@ def create_gaussian_diffusion(
 
 # 从 ymal 文件中获取参数字典
 def load_config(path):
-    with open(path, 'r') as f:
+    with open(path, 'r', encoding="utf-8") as f:
         config = yaml.safe_load(f)
     return config

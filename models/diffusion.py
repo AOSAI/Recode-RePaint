@@ -1,10 +1,12 @@
 import torch
 import numpy as np
 from collections import defaultdict
-from noise_schedule import noise_related_calculate
+from models.noise_schedule import noise_related_calculate
 from tools.scheduler import get_schedule_jump
-from diff_utils import (ModelMeanType, ModelVarType, LossType, mean_flat, normal_kl, 
-                    extract, discretized_gaussian_log_likelihood)
+from models.diff_utils import (
+    ModelMeanType, ModelVarType, LossType, mean_flat, normal_kl, 
+    extract, discretized_gaussian_log_likelihood
+)
 
 
 # -------------- 基类 --------------
@@ -101,7 +103,7 @@ class GaussianDiffusion:
                 model_variance = torch.exp(model_log_variance)
             else:
                 min_log = extract(self.posterior_log_variance_clipped, t, x.shape)
-                max_log = extract(torch.log(self.betas), t, x.shape)
+                max_log = extract(np.log(self.betas), t, x.shape)
                 # The model_var_values is [-1, 1] for [min_var, max_var].
                 frac = (model_var_values + 1) / 2
                 model_log_variance = frac * max_log + (1 - frac) * min_log
@@ -246,11 +248,51 @@ class SamplerDDPM:
         # 用到的属性，重新建立索引引用，不会额外占用显存
         self.p_mean_variance = diffusion.p_mean_variance
         self.num_timesteps = diffusion.num_timesteps
+        self.alphas_cumprod = diffusion.alphas_cumprod
+        self.betas = diffusion.betas
+
+    def condition_mean(self, cond_fn, p_mean_var, x, t, model_kwargs=None):
+        """
+        给定函数 cond_fn, 计算条件对数概率相对于 x 的梯度，计算上一步的均值。
+        具体而言, cond_fn 计算 grad(log(p(y|x)))，我们希望以 y 为条件。
+        这采用了 Sohl-Dickstein 等人 (2015 年) 的条件策略。
+        """
+        gradient = cond_fn(x, t, **model_kwargs)
+        new_mean = (
+            p_mean_var["mean"].float() + p_mean_var["variance"] * gradient.float()
+        )
+        return new_mean
+    
+    def undo(self, img_out, t):
+        """ RePaint 回跳时的加噪过程 """
+        beta = extract(self.betas, t, img_out.shape)
+        noise = torch.randn_like(img_out)
+        return torch.sqrt(1 - beta) * img_out + torch.sqrt(beta) * noise
 
     def p_sample(
-        self, model, x_t, t, clip_denoised=True, denoised_fn=None, model_kwargs=None
+        self, model, x_t, t, clip_denoised=True, denoised_fn=None, cond_fn=None, model_kwargs=None, conf=None, pred_xstart=None,
     ):
         """ Sample x_{t-1} from the model at the given timestep. """
+
+        # 如果启用了 "前一步注入引导策略"
+        if conf.inpa_inj_sched_prev:
+            # 只有当前时刻，已经有预测的 x_start 时，才进行注入操作
+            if pred_xstart is not None:
+                # 获取 二值 mask，以及原始输入图像
+                gt_keep_mask = model_kwargs.get('gt_keep_mask')
+                gt = model_kwargs['gt']
+
+                # 通过前向加噪公式，手动计算 weighed_gt
+                alpha_cumprod = extract(self.alphas_cumprod, t, x_t.shape)
+                gt_weight = torch.sqrt(alpha_cumprod)
+                gt_part = gt_weight * gt
+                noise_weight = torch.sqrt((1 - alpha_cumprod))
+                noise_part = noise_weight * torch.randn_like(x_t)
+                weighed_gt = gt_part + noise_part
+
+                # gt_keep_mask 为 1 的地方使用 weighed_gt；为 0 的地方使用原图
+                x_t = gt_keep_mask * ( weighed_gt) + (1 - gt_keep_mask) * (x_t)
+
         out = self.p_mean_variance(
             model, x_t, t, model_kwargs=model_kwargs,
             clip_denoised=clip_denoised, denoised_fn=denoised_fn,
@@ -258,8 +300,19 @@ class SamplerDDPM:
 
         noise = torch.randn_like(x_t)
         nonzero_mask = ((t != 0).float().view(-1, *([1] * (len(x_t.shape) - 1))))
+
+        if cond_fn is not None:
+            out["mean"] = self.condition_mean(
+                cond_fn, out, x_t, t, model_kwargs=model_kwargs
+            )
+
         sample = out["mean"] + nonzero_mask * torch.exp(0.5 * out["log_variance"]) * noise
-        return {"sample": sample, "pred_xstart": out["pred_xstart"]}
+        
+        return {
+            "sample": sample, 
+            "pred_xstart": out["pred_xstart"],
+            'gt': model_kwargs.get('gt'),
+        }
     
     def p_sample_loop(
         self, model, shape, device=None, noise=None, progress=False, cond_fn=None,
@@ -274,9 +327,7 @@ class SamplerDDPM:
         else:
             image_after_step = torch.randn(*shape, device=device)
 
-        self.gt_noises = None  # reset for next image
         pred_xstart = None
-        idx_wall = -1
         sample_idxs = defaultdict(lambda: 0)
 
         if conf.schedule_jump_params:
@@ -290,10 +341,10 @@ class SamplerDDPM:
                 time_pairs = tqdm(time_pairs)
 
             for t_last, t_cur in time_pairs:
-                idx_wall += 1
                 t_last_t = torch.tensor([t_last] * shape[0], device=device)
-
-                if t_cur < t_last:  # reverse
+                
+                # 如果当前 t 在减小，逆向生成；否则进行回跳加噪
+                if t_cur < t_last:
                     with torch.no_grad():
                         image_before_step = image_after_step.clone()
                         out = self.p_sample(
@@ -310,15 +361,15 @@ class SamplerDDPM:
                         sample_idxs[t_cur] += 1
                         yield out
                 else:
-                    t_shift = conf.get('inpa_inj_time_shift', 1)
+                    t_shift = conf.get('inpa_inj_time_shift', 1)  # 没有该键则使用 1
+                    # image_before_step = image_after_step.clone()  # 保存当前状态
+                    
+                    # 根据 DDPM 的公式重新加噪
+                    image_after_step = self.undo(image_after_step, t=t_last_t+t_shift)
 
-                    image_before_step = image_after_step.clone()
-                    image_after_step = self.undo(
-                        image_before_step, image_after_step,
-                        est_x_0=out['pred_xstart'], t=t_last_t+t_shift, debug=False)
+                    # 保存当前步预测出来的 x_0，用于下一步的融合/参考
                     pred_xstart = out["pred_xstart"]
 
-        return image_after_step["sample"]
     
     def sample(
         self, model, batch_size, image_size, device, clip_denoised=True, model_kwargs=None,
@@ -326,11 +377,17 @@ class SamplerDDPM:
     ):
         """外部调用入口，封装 p_sample_loop"""
         shape = (batch_size, 3, image_size, image_size)
-        results = self.p_sample_loop(
-            model, shape, device, clip_denoised=clip_denoised, model_kwargs=model_kwargs,
-            cond_fn=cond_fn, progress=progress, conf=conf
-        )
-        return results if return_all else results["sample"]
+        final = None
+        for sample in self.p_sample_loop(
+            model, shape, device, 
+            clip_denoised=clip_denoised, 
+            model_kwargs=model_kwargs,
+            cond_fn=cond_fn, 
+            progress=progress, 
+            conf=conf
+        ):
+            final = sample
+        return final if return_all else final["sample"]
     
 
 # -------------- DDIM 加速采样器 --------------

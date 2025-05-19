@@ -1,7 +1,7 @@
 # reproduction for yaml's structure
 
 model:
-  image_size: 256
+  image_size: 512
   num_channels: 256 # default 256
   num_res_blocks: 2
   channel_mult: ""
@@ -45,8 +45,8 @@ sampling:
   show_progress: true
   num_samples: 100
   use_ddim: False
-  model_path: ./data/pretrained/celeba256_250000.pt
-  name: template
+  model_path: ./data/pretrained/512x512_diffusion.pt
+  name: test_512
   # 仅在条件生成时使用的参数
   classifier_scale: 4.0
   classifier_path: ""
@@ -69,8 +69,8 @@ data:
   eval:
     paper_face_mask:
       mask_loader: true
-      gt_path: ./data/datasets/gts/face
-      mask_path: ./data/datasets/gt_keep_masks/face
+      gt_path: ./data/datasets/gts/test512-1
+      mask_path: ./data/datasets/gt_keep_masks/test512-1
       image_size: 256
       class_cond: false
       deterministic: true
@@ -81,9 +81,9 @@ data:
       batch_size: 1
       return_dataloader: true
       offset: 0
-      max_len: 8
+      max_len: 3
       paths:
-        srs: ./log/face_example/inpainted
-        lrs: ./log/face_example/gt_masked
-        gts: ./log/face_example/gt
-        gt_keep_masks: ./log/face_example/gt_keep_mask
+        srs: ./log/test_512/inpainted
+        lrs: ./log/test_512/gt_masked
+        gts: ./log/test_512/gt
+        gt_keep_masks: ./log/test_512/gt_keep_mask

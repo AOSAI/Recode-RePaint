@@ -34,7 +34,22 @@ class NoneDict(defaultdict):
 
     # 手动实现（conf.xxx）方式的递归属性查找。
     def __getattr__(self, attr):
-        return self.get(attr)
+        val = self.get(attr)
+        if isinstance(val, dict) and not isinstance(val, NoneDict):
+            val = NoneDict.recursive_convert(val)
+            self[attr] = val  # 缓存起来，避免重复转换
+        return val
+    
+    @staticmethod
+    def recursive_convert(d):
+        """递归将所有 dict 转为 NoneDict"""
+        if isinstance(d, dict):
+            nd = NoneDict()
+            for k, v in d.items():
+                nd[k] = NoneDict.recursive_convert(v)
+            return nd
+        else:
+            return d
 
 
 class Default_Conf(NoneDict):
@@ -58,7 +73,7 @@ class Default_Conf(NoneDict):
 
         # 检查 ds_conf 中有没有 'mask_loader' 这个 key，有就返回，没有就是默认的 False
         if ds_conf.get('mask_loader', False):
-            from image_datasets import load_data_inpa
+            from .image_datasets import load_data_inpa
             return load_data_inpa(**ds_conf, conf=self)
         else:
             raise NotImplementedError()

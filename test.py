@@ -6,6 +6,12 @@ process towards more realistic images.
 
 import torch as th
 import torch.nn.functional as F
+from models.diffusion import SamplerDDPM, SamplerDDIM
+from tools import conf_base
+from tools.script_util import (
+    NUM_CLASSES, create_model_and_diffusion,
+    create_classifier_model, load_config,
+)
 
 # Workaround
 try:
@@ -14,12 +20,6 @@ try:
 except:
     pass
 
-from models.diffusion import SamplerDDPM, SamplerDDIM
-from tools import conf_base
-from tools.script_util import (
-    NUM_CLASSES, create_model_and_diffusion,
-    create_classifier_model, load_config,
-)
 
 # 保存图像前的数据格式调整
 def toU8(sample):
@@ -42,7 +42,9 @@ def main(conf: conf_base.Default_Conf):
     print("Start", conf.sampling.name)
     device = th.device('cuda' if th.cuda.is_available() else 'cpu')
     model, diffusion = create_model_and_diffusion(conf.model, conf.diffusion)
-    model.load_state_dict(th.load(conf.sampling.model_path, map_location=device))
+    model.load_state_dict(
+        th.load(conf.sampling.model_path, map_location=device, weights_only=True),
+    )
     model.to(device)
     if conf.model.use_fp16:
         model.convert_to_fp16()
@@ -149,5 +151,5 @@ if __name__ == "__main__":
     # 自定义的处理 yaml 参数的对象
     conf_arg = conf_base.Default_Conf()
     # update 继承自 dict，用于将读取到的字典更新至 conf_arg 中
-    conf_arg.update(load_config("./configs/template.yaml"))
+    conf_arg.update(load_config("./configs/template.yml"))
     main(conf_arg)

@@ -1,7 +1,7 @@
 import numpy as np
 import torch as th
-from diffusion import GaussianDiffusion
-from noise_schedule import noise_related_calculate
+from .diffusion import GaussianDiffusion
+from .noise_schedule import noise_related_calculate
 
 # DDIM 的核心之一，从原始的时间步中，智能地间隔取出一定数量的时间步。
 def space_timesteps(num_timesteps, section_counts):
