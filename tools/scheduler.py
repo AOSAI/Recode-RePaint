@@ -14,7 +14,7 @@ def _check_times(times, t_0, t_T):
         assert t <= t_T, (t, t_T)
 
 # 1.2.1 回跳的条件判断的封装函数
-def judge_bool(t, jump_list, jump_length, start_resampling):
+def judge_bool(t, jump_list, jump_length, start_resampling=10000):
     if t not in jump_list:
         return False
     if t > start_resampling - jump_length:
@@ -24,12 +24,43 @@ def judge_bool(t, jump_list, jump_length, start_resampling):
     return True
 
 # 1.1.1 构造跳跃字典
-def build_jumps(t_T=250, length=10, count=10):
+def build_jumps(start=250, end=0, length=10, count=10):
     """
     :range(0, 240, 10) -> [0, 10, 20, 30 ...]
     :dict {0: 9, 10: 9, 20: 9, ..., 230: 9}
     """
-    return {j: count - 1 for j in range(0, t_T - length, length)}
+    return {j: count for j in range(start, end, -length)}
+
+
+# ------------ 2. RePaint+ 的 jump back 跳跃时间表 ------------
+def get_schedule_jump2(
+    t_T, jump_length, jump_sapcing, jump_start_pct=0.2, jump_stop_pct=0.8
+):
+    # 2.1 获取 jump back 的时间步范围
+    start_jump = t_T - (t_T * jump_start_pct)
+    stop_jump = t_T - (t_T * jump_stop_pct)
+    
+    # 2.2 结构为 3 个数组；计算重采样的节点和次数 
+    ts_before_start = list(range(t_T, start_jump, -1))
+    ts_after_stop = list(range(stop_jump, 0, -1))
+    jumps  = build_jumps(start_jump, stop_jump, jump_sapcing, 1)
+
+    ts = []
+    t = start_jump
+    while t >= stop_jump:
+        if judge_bool(t, jumps, jump_length):
+            jumps[t] -= 1
+            for i in range(1, jump_length + 1):
+                t = t + 1
+                ts.append(t)
+
+        t = t - 1
+        ts.append(t)
+
+    ts = ts_before_start + ts + ts_after_stop
+    ts.append(-1)  # 模型会在 -1 时结束循环
+    _check_times(ts, -1, t_T)  # 断言检查函数，确保所有 ts 都合法
+    return ts
 
 
 # ------------ 1. RePaint 的核心，jump back 跳跃时间表（已重构） ------------
@@ -38,9 +69,9 @@ def get_schedule_jump(
     jump3_length=1, jump3_n_sample=1, start_resampling=100000000
 ):
     # 1.1 从 t_T 到 0，每隔 jump_length 步设置一个“回跳点”，重采样 jump_n_sample - 1 次
-    jumps  = build_jumps(t_T, jump_length, jump_n_sample)
-    jumps2 = build_jumps(t_T, jump2_length, jump2_n_sample)
-    jumps3 = build_jumps(t_T, jump3_length, jump3_n_sample)
+    jumps  = build_jumps(t_T, 0, jump_length, jump_n_sample)
+    jumps2 = build_jumps(t_T, 0, jump2_length, jump2_n_sample)
+    jumps3 = build_jumps(t_T, 0, jump3_length, jump3_n_sample)
 
     # 1.2 循环跳跃，重构时间步
     t = t_T  # 以 t_T = 250 为例子

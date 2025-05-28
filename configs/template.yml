@@ -47,6 +47,7 @@ sampling:
   use_ddim: False
   model_path: ./data/pretrained/celeba256_250000.pt
   name: template
+  fix_seed: False
   # 仅在条件生成时使用的参数
   classifier_scale: 4.0
   classifier_path: ""
@@ -64,6 +65,14 @@ schedule_jump_params:
   n_sample: 1
   jump_length: 10
   jump_n_sample: 10
+
+schedule_jump_params2:
+  t_T: 250 # 总步数
+  jump_length: 10, # 每次回跳多少步
+  jump_sapcing: 5, # 每隔多少步进行一次回跳
+  jump_start_pct: 0.2, # 从 T 的 20% 开始考虑回跳
+  jump_stop_pct: 0.8, # 到 T 的 80% 停止考虑回跳
+  rand_seed: 1234 # 保证复现
 
 data:
   eval:
