@@ -15,18 +15,15 @@ def _check_times(times, t_0, t_T):
 
 # 1.2.2 新的完整性检查函数
 def new_check_times(times, t_0, t_T, jump_length):
-    # 检查开头是否递减、结尾是否为 -1
-    assert times[0] > times[1], (times[0], times[1])
-    assert times[-1] == -1, times[-1]
+    assert times[-1] == -1, times[-1]  # 检查结尾是否为 -1
 
-    # 所有相邻的时间步差值必须是 1（回跳也是 1步1步 的走）
-    for t_last, t_cur in zip(times[:-1], times[1:]):
-        assert abs(t_last - t_cur) == 1, (t_last, t_cur)
+    for i in range(1, len(times)):
+        delta = times[i] - times[i - 1]
+        assert delta == -1 or delta == jump_length - 1, \
+            f"Invalid jump step at index {i}: {times[i-1]} → {times[i]})"
 
-    # 所有时间步都必须在 [t_0, t_T] 范围内
     for t in times:
-        assert t >= t_0, (t, t_0)
-        assert t <= t_T, (t, t_T)
+        assert t_0 <= t <= t_T, f"Timestep {t} out of bounds [{t_0}, {t_T}]"
 
 # 1.2.1 回跳的条件判断的封装函数
 def judge_bool(t, jump_list, jump_length, start_resampling=10000):
@@ -49,8 +46,8 @@ def build_jumps(start=250, end=0, length=10, count=10):
 
 # ------------ 2. RePaint+ 的 jump back 跳跃时间表 ------------
 def get_schedule_jump2(
-    t_T, jump_length, jump_sapcing, jump_n_sample, 
-    jump_start_pct=0.2, jump_stop_pct=0.8
+    t_T, jump_length, jump_sapcing, jump_n_sample, add_noise_once,
+    jump_start_pct=0.2, jump_stop_pct=0.8, 
 ):
     # 2.1 获取 jump back 的时间步范围
     start_jump = t_T - int(t_T * jump_start_pct)
@@ -58,24 +55,29 @@ def get_schedule_jump2(
     
     # 2.2 结构为 3 个数组；计算重采样的节点和次数 
     ts_before_start = list(range(t_T - 1, start_jump - 1, -1))
-    ts_after_stop = list(range(stop_jump, -1, -1))
+    ts_after_stop = list(range(stop_jump - 1, -2, -1))
     jumps  = build_jumps(start_jump, stop_jump, jump_sapcing, jump_n_sample)
 
     ts = []
     t = start_jump
-    while t >= stop_jump:
+    while t > stop_jump:
         if judge_bool(t, jumps, jump_length):
             jumps[t] -= 1
-            for i in range(1, jump_length + 1):
-                t = t + 1
+            if not add_noise_once:
+                for i in range(1, jump_length):
+                    t = t + 1
+                    ts.append(t)
+            else:
+                t = t + jump_length - 1
                 ts.append(t)
-
         t = t - 1
         ts.append(t)
 
     ts = ts_before_start + ts + ts_after_stop
-    ts.append(-1)  # 模型会在 -1 时结束循环
-    _check_times(ts, -1, t_T)  # 断言检查函数，确保所有 ts 都合法
+    if not add_noise_once:
+        _check_times(ts, -1, t_T)  
+    else: 
+        new_check_times(ts, -1, t_T, jump_length)
     return ts
 
 
@@ -132,6 +134,22 @@ def get_schedule_jump(
 
     ts.append(-1)  # 模型会在 -1 时结束循环
     # 断言检查函数，确保所有 ts 都合法
-    _check_times(ts, -1, t_T)  if not add_noise_once else new_check_times(ts, -1, t_T, jump_length)
+    if not add_noise_once:
+        _check_times(ts, -1, t_T)  
+    else: 
+        new_check_times(ts, -1, t_T, jump_length)
     return ts
 
+if __name__ == "__main__":
+    # result = get_schedule_jump(
+    #     t_T=250, n_sample=1, jump_length=10, jump_n_sample=10, add_noise_once=True
+    # )
+    # print(result)
+
+    result2 = get_schedule_jump2(
+        t_T=250, jump_length=10, jump_sapcing=10, jump_n_sample=10, add_noise_once=False,
+        jump_start_pct=0.04, jump_stop_pct=1.0
+    )
+    print(result2)
+
+    

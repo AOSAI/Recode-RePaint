@@ -129,16 +129,12 @@ class SamplerRePaint1:
                         yield out
                 else:
                     if conf.sampling.add_noise_once:
-                        jump_length = int(conf.schedule_jump_params.jump_length) - 1
-                        assert t_cur - t_last == jump_length, "jump steps have mistakes"
-                        t_shift = jump_length
+                        t_shift = int(conf.schedule_jump_params.jump_length) - 1
+                        assert t_cur - t_last == t_shift, "jump steps have mistakes"
+                        image_after_step = self.q_sample(image_after_step, t=t_last_t+t_shift)
                     else:
                         t_shift = 1
-                    
-                    # 根据 DDPM 的公式重新加噪
-                    image_after_step = self.undo(image_after_step, t=t_last_t+t_shift)
-                    # 保存当前步预测出来的 x_0，用于下一步的融合/参考
-                    pred_xstart = out["pred_xstart"]
+                        image_after_step = self.undo(image_after_step, t=t_last_t+t_shift)
 
     
     def sample(
@@ -170,6 +166,7 @@ class SamplerRePaint2:
         self.num_timesteps = diffusion.num_timesteps
         self.alphas_cumprod = diffusion.alphas_cumprod
         self.betas = diffusion.betas
+        self.q_sample = diffusion.q_sample
 
     def condition_mean(self, cond_fn, p_mean_var, x, t, model_kwargs=None):
         """
@@ -196,12 +193,8 @@ class SamplerRePaint2:
     ):
         """ Sample x_{t-1} from the model at the given timestep. """
 
-        if conf.inpa_inj_sched_prev:
+        if conf.sampling.process_xt:
             if pred_xstart is not None:
-            #     out["pred_xstart"] = gt_keep_mask * gt + (1 - gt_keep_mask) * pred_xstart
-            # else:    
-            #     out["pred_xstart"] = gt_keep_mask * gt + (1 - gt_keep_mask) * out["pred_xstart"]
-
                 gt_keep_mask = model_kwargs.get('gt_keep_mask')  # 获取 二值 mask
                 gt = model_kwargs['gt']  # 获取输入的原始图像
 
@@ -220,6 +213,12 @@ class SamplerRePaint2:
             model, x_t, t, model_kwargs=model_kwargs,
             clip_denoised=clip_denoised, denoised_fn=denoised_fn,
         )
+
+        if conf.sampling.process_xstart:
+            if pred_xstart is not None:
+                gt = model_kwargs["gt"]
+                gt_keep_mask = model_kwargs.get("gt_keep_mask")
+                out["pred_xstart"] = gt_keep_mask * gt + (1 - gt_keep_mask) * out["pred_xstart"]
 
         if conf.sampling.fix_seed:
             torch.manual_seed(1234)
@@ -255,6 +254,7 @@ class SamplerRePaint2:
 
         pred_xstart = None
         sample_idxs = defaultdict(lambda: 0)
+        addnoise_base = None
 
         if conf.schedule_jump_params:
             # 获取 RePaint 回跳机制下的 新时间步
@@ -286,13 +286,27 @@ class SamplerRePaint2:
                         sample_idxs[t_cur] += 1
                         yield out
                 else:
-                    jump_length = int(conf.schedule_jump_params2.jump_length)
-                    t_shift = jump_length if t_cur - t_last == jump_length else 1
+                    if conf.sampling.add_noise_once:
+                        t_shift = int(conf.schedule_jump_params.jump_length) - 1
+                        assert t_cur - t_last == t_shift, "jump steps have mistakes"
+                        # 一次性加噪（跳步）
+                        if conf.sampling.process_xstart:
+                            addnoise_base = pred_xstart
+                        else:
+                            addnoise_base = image_after_step
+                        image_after_step = self.q_sample(addnoise_base, t=t_last_t+t_shift)
+                    else:
+                        t_shift = 1
+                        # 多次逐步加噪（每次 +1）
+                        if conf.sampling.process_xstart:
+                            if t_last + 1 == t_cur:
+                                addnoise_base = pred_xstart
+                            else:
+                                addnoise_base = image_after_step
+                        else:
+                            addnoise_base = image_after_step
+                        image_after_step = self.undo(addnoise_base, t=t_last_t+t_shift)
                     
-                    image_after_step = self.undo(image_after_step, t=t_last_t+t_shift)
-                    pred_xstart = out["pred_xstart"]
-
-    
     def sample(
         self, model, batch_size, image_size, device, clip_denoised=True, model_kwargs=None,
         cond_fn=None, progress=True, return_all=False, conf=None

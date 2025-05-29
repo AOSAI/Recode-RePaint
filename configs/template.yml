@@ -54,14 +54,6 @@ sampling:
   classifier_scale: 4.0
   classifier_path: ""
 
-# lr_kernel_n_std: 2
-# latex_name: RePaint
-# method_name: Repaint
-# inpa_inj_sched_prev: true
-# n_jobs: 1
-# print_estimated_vars: true
-# inpa_inj_sched_prev_cumnoise: false
-
 schedule_jump_params:
   t_T: 250
   n_sample: 1
@@ -71,9 +63,10 @@ schedule_jump_params:
 
 schedule_jump_params2:
   t_T: 250 # 总步数
-  jump_length: 9 # 每次回跳多少步
+  jump_length: 10 # 每次回跳多少步
   jump_sapcing: 10 # 每隔多少步进行一次回跳
   jump_n_sample: 10
+  add_noise_once: false
   jump_start_pct: 0.04 # 从 T 的 xx% 开始考虑回跳
   jump_stop_pct: 1.0 # 到 T 的 xx% 停止考虑回跳
 
