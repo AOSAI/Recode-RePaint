@@ -1,6 +1,6 @@
 import torch
 from collections import defaultdict
-from tools.scheduler import get_schedule_jump
+from tools.scheduler import get_schedule_jump, get_schedule_jump2
 from models.diffusion import GaussianDiffusion
 from models.diff_utils import extract
 
@@ -15,6 +15,7 @@ class SamplerRePaint1:
         self.num_timesteps = diffusion.num_timesteps
         self.alphas_cumprod = diffusion.alphas_cumprod
         self.betas = diffusion.betas
+        self.q_sample = diffusion.q_sample
 
     def condition_mean(self, cond_fn, p_mean_var, x, t, model_kwargs=None):
         """
@@ -29,7 +30,7 @@ class SamplerRePaint1:
         return new_mean
     
     def undo(self, img_out, t):
-        """ RePaint 回跳时的加噪过程 """
+        """ RePaint 回跳时的加噪过程 1, 每一步都引入独立的高斯噪声"""
         beta = extract(self.betas, t, img_out.shape)
         noise = torch.randn_like(img_out)
         return torch.sqrt(1 - beta) * img_out + torch.sqrt(beta) * noise
@@ -41,7 +42,7 @@ class SamplerRePaint1:
         """ Sample x_{t-1} from the model at the given timestep. """
 
         # 如果启用了 "前一步注入引导策略"
-        if conf.inpa_inj_sched_prev:
+        if conf.sampling.process_xt:
             # 只有当前时刻，已经有预测的 x_start 时，才进行注入操作
             if pred_xstart is not None:
                 # 获取 二值 mask，以及原始输入图像
@@ -127,12 +128,15 @@ class SamplerRePaint1:
                         sample_idxs[t_cur] += 1
                         yield out
                 else:
-                    t_shift = conf.get('inpa_inj_time_shift', 1)  # 没有该键则使用 1
-                    # image_before_step = image_after_step.clone()  # 保存当前状态
+                    if conf.sampling.add_noise_once:
+                        jump_length = int(conf.schedule_jump_params.jump_length) - 1
+                        assert t_cur - t_last == jump_length, "jump steps have mistakes"
+                        t_shift = jump_length
+                    else:
+                        t_shift = 1
                     
                     # 根据 DDPM 的公式重新加噪
                     image_after_step = self.undo(image_after_step, t=t_last_t+t_shift)
-
                     # 保存当前步预测出来的 x_0，用于下一步的融合/参考
                     pred_xstart = out["pred_xstart"]
 
@@ -188,33 +192,34 @@ class SamplerRePaint2:
 
     def p_sample(
         self, model, x_t, t, clip_denoised=True, denoised_fn=None, cond_fn=None, 
-        model_kwargs=None, conf=None
+        model_kwargs=None, conf=None, pred_xstart=None
     ):
         """ Sample x_{t-1} from the model at the given timestep. """
+
+        if conf.inpa_inj_sched_prev:
+            if pred_xstart is not None:
+            #     out["pred_xstart"] = gt_keep_mask * gt + (1 - gt_keep_mask) * pred_xstart
+            # else:    
+            #     out["pred_xstart"] = gt_keep_mask * gt + (1 - gt_keep_mask) * out["pred_xstart"]
+
+                gt_keep_mask = model_kwargs.get('gt_keep_mask')  # 获取 二值 mask
+                gt = model_kwargs['gt']  # 获取输入的原始图像
+
+                # 通过前向加噪公式，手动计算 weighed_gt
+                alpha_cumprod = extract(self.alphas_cumprod, t, x_t.shape)
+                gt_weight = torch.sqrt(alpha_cumprod)
+                gt_part = gt_weight * gt
+                noise_weight = torch.sqrt((1 - alpha_cumprod))
+                noise_part = noise_weight * torch.randn_like(x_t)
+                weighed_gt = gt_part + noise_part
+
+                # gt_keep_mask 为 1 的地方使用 weighed_gt；为 0 的地方使用原图
+                x_t = gt_keep_mask * (weighed_gt) + (1 - gt_keep_mask) * (x_t)
 
         out = self.p_mean_variance(
             model, x_t, t, model_kwargs=model_kwargs,
             clip_denoised=clip_denoised, denoised_fn=denoised_fn,
         )
-
-        if conf.inpa_inj_sched_prev:
-            gt_keep_mask = model_kwargs.get('gt_keep_mask')  # 获取 二值 mask
-            gt = model_kwargs['gt']  # 获取输入的原始图像
-
-            if gt_keep_mask is not None and gt is not None:
-                # soft-masking 将去噪后的图像在 mask 区域融合为 ground truth
-                out["pred_xstart"] = gt_keep_mask * gt + (1 - gt_keep_mask) * out["pred_xstart"]
-
-            # 通过前向加噪公式，手动计算 weighed_gt
-            alpha_cumprod = extract(self.alphas_cumprod, t, x_t.shape)
-            gt_weight = torch.sqrt(alpha_cumprod)
-            gt_part = gt_weight * gt
-            noise_weight = torch.sqrt((1 - alpha_cumprod))
-            noise_part = noise_weight * torch.randn_like(x_t)
-            weighed_gt = gt_part + noise_part
-
-            # gt_keep_mask 为 1 的地方使用 weighed_gt；为 0 的地方使用原图
-            x_t = gt_keep_mask * (weighed_gt) + (1 - gt_keep_mask) * (x_t)
 
         if conf.sampling.fix_seed:
             torch.manual_seed(1234)
@@ -253,7 +258,7 @@ class SamplerRePaint2:
 
         if conf.schedule_jump_params:
             # 获取 RePaint 回跳机制下的 新时间步
-            times = get_schedule_jump(**conf.schedule_jump_params)
+            times = get_schedule_jump2(**conf.schedule_jump_params2)
 
             # 构造 “相邻时间对”；是否启用进度条显示
             time_pairs = list(zip(times[:-1], times[1:]))
@@ -274,7 +279,7 @@ class SamplerRePaint2:
                             cond_fn=cond_fn,
                             model_kwargs=model_kwargs,
                             conf=conf,
-
+                            pred_xstart=pred_xstart
                         )
                         image_after_step = out["sample"]
                         pred_xstart = out["pred_xstart"]
@@ -284,7 +289,7 @@ class SamplerRePaint2:
                     jump_length = int(conf.schedule_jump_params2.jump_length)
                     t_shift = jump_length if t_cur - t_last == jump_length else 1
                     
-                    image_after_step = self.undo(pred_xstart, t=t_last_t+t_shift)
+                    image_after_step = self.undo(image_after_step, t=t_last_t+t_shift)
                     pred_xstart = out["pred_xstart"]
 
     

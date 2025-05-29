@@ -80,15 +80,19 @@ class Default_Conf(NoneDict):
 
     # 4.7.1 保存 inpainting 相关的图像
     def eval_imswrite(
-        self, srs=None, img_names=None, dset=None, name=None, ext='png', 
+        self, srs=None, srx=None, img_names=None, dset=None, name=None, ext='png', 
         lrs=None, gts=None, gt_keep_masks=None,
     ):
         img_names = to_file_ext(img_names, ext)  # 更改图像的后缀格式至 PNG
         paths = self['data'][dset][name]['paths']
 
         if srs is not None:
-            sr_dir_path = expanduser(paths['srs'])
-            write_images(srs, img_names, sr_dir_path)
+            srs_dir_path = expanduser(paths['srs'])
+            write_images(srs, img_names, srs_dir_path)
+
+        if srx is not None:
+            srx_dir_path = expanduser(paths['srx'])
+            write_images(srs, img_names, srx_dir_path)
 
         if gt_keep_masks is not None:
             mask_dir_path = expanduser(paths['gt_keep_masks'])

@@ -6,7 +6,8 @@ process towards more realistic images.
 
 import torch as th
 import torch.nn.functional as F
-from models.diffusion import SamplerDDPM, SamplerDDIM
+from models.diffusion import SamplerDDIM
+from models.diff_sample import SamplerRePaint1, SamplerRePaint2
 from tools import conf_base
 from tools.script_util import (
     NUM_CLASSES, create_model_and_diffusion,
@@ -112,7 +113,7 @@ def main(conf: conf_base.Default_Conf):
 
         # 4.4 采样方式的选择：ddpm采样，ddim采样
         if not conf.model.use_ddim:
-            sample_fn = SamplerDDPM(diffusion).sample
+            sample_fn = SamplerRePaint1(diffusion).sample
         else:
             sample_fn = SamplerDDIM(diffusion).sample
         
@@ -131,7 +132,8 @@ def main(conf: conf_base.Default_Conf):
         )
 
         # 4.6 还原采样过程中的四种图像：、原始 gt、被遮挡的输入 lrs、
-        srs = toU8(result['sample'])  # 模型生成的 srs
+        srs = toU8(result['sample'])  # 模型生成的 sample
+        srx = toU8(result['pred_xstart'])  # 模型生成的 pred_xstart
         gts = toU8(result['gt'])  # 原始图像 gt
         # 被遮挡的输入图像：遮罩部分被填充为纯黑色，其余部分保留
         lrs = toU8(result.get('gt') * model_kwargs.get('gt_keep_mask') + (-1) *
@@ -140,7 +142,7 @@ def main(conf: conf_base.Default_Conf):
 
         # 4.7 执行保存操作
         conf.eval_imswrite(
-            srs=srs, gts=gts, lrs=lrs, gt_keep_masks=gtkm,
+            srs=srs, srx=srx, gts=gts, lrs=lrs, gt_keep_masks=gtkm,
             img_names=batch['GT_name'], dset=dset, name=eval_name
         )
 

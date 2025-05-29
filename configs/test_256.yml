@@ -45,44 +45,32 @@ sampling:
   show_progress: true
   num_samples: 100
   use_ddim: False
-  model_path: ./data/pretrained/celeba256_250000.pt
+  model_path: ./data/pretrained/places256_300000.pt
   name: template
-  fix_seed: False
-  process_xt: true
-  process_xstart: true
   # 仅在条件生成时使用的参数
   classifier_scale: 4.0
   classifier_path: ""
 
-# lr_kernel_n_std: 2
-# latex_name: RePaint
-# method_name: Repaint
-# inpa_inj_sched_prev: true
-# n_jobs: 1
-# print_estimated_vars: true
-# inpa_inj_sched_prev_cumnoise: false
+lr_kernel_n_std: 2
+latex_name: RePaint
+method_name: Repaint
+inpa_inj_sched_prev: true
+n_jobs: 1
+print_estimated_vars: true
+inpa_inj_sched_prev_cumnoise: false
 
 schedule_jump_params:
   t_T: 250
   n_sample: 1
   jump_length: 10
   jump_n_sample: 10
-  add_noise_once: true
-
-schedule_jump_params2:
-  t_T: 250 # 总步数
-  jump_length: 9 # 每次回跳多少步
-  jump_sapcing: 10 # 每隔多少步进行一次回跳
-  jump_n_sample: 10
-  jump_start_pct: 0.04 # 从 T 的 xx% 开始考虑回跳
-  jump_stop_pct: 1.0 # 到 T 的 xx% 停止考虑回跳
 
 data:
   eval:
     paper_face_mask:
       mask_loader: true
-      gt_path: ./data/datasets/gts-old1/face
-      mask_path: ./data/datasets/gt_keep_masks-old1/face
+      gt_path: ./data/datasets/gts/test-section-1
+      mask_path: ./data/datasets/gt_keep_masks/test-section-1
       image_size: 256
       class_cond: false
       deterministic: true
@@ -93,10 +81,9 @@ data:
       batch_size: 1
       return_dataloader: true
       offset: 0
-      max_len: 8
+      max_len: 3
       paths:
-        srs: ./log/face_example2/inpainted_xt
-        srx: ./log/face_example2/inpainted_xstart
-        lrs: ./log/face_example2/gt_masked
-        gts: ./log/face_example2/gt
-        gt_keep_masks: ./log/face_example2/gt_keep_mask
+        srs: ./log/256-section-1/inpainted
+        lrs: ./log/256-section-1/gt_masked
+        gts: ./log/256-section-1/gt
+        gt_keep_masks: ./log/256-section-1/gt_keep_mask
