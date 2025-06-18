@@ -113,7 +113,7 @@ def main(conf: conf_base.Default_Conf):
 
         # 4.4 采样方式的选择：ddpm采样，ddim采样
         if not conf.model.use_ddim:
-            sample_fn = SamplerRePaint1(diffusion).sample
+            sample_fn = SamplerRePaint2(diffusion).sample
         else:
             sample_fn = SamplerDDIM(diffusion).sample
         
@@ -153,5 +153,5 @@ if __name__ == "__main__":
     # 自定义的处理 yaml 参数的对象
     conf_arg = conf_base.Default_Conf()
     # update 继承自 dict，用于将读取到的字典更新至 conf_arg 中
-    conf_arg.update(load_config("./configs/template.yml"))
+    conf_arg.update(load_config("./configs/test_128.yml"))
     main(conf_arg)

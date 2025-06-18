@@ -45,9 +45,9 @@ class SamplerRePaint1:
         if conf.sampling.process_xt:
             # 只有当前时刻，已经有预测的 x_start 时，才进行注入操作
             if pred_xstart is not None:
-                # 获取 二值 mask，以及原始输入图像
+                # 获取 二值 mask，白色为 1，黑色为 0
                 gt_keep_mask = model_kwargs.get('gt_keep_mask')
-                gt = model_kwargs['gt']
+                gt = model_kwargs['gt']  # 获取原始输入图像
 
                 # 通过前向加噪公式，手动计算 weighed_gt
                 alpha_cumprod = extract(self.alphas_cumprod, t, x_t.shape)
@@ -58,7 +58,7 @@ class SamplerRePaint1:
                 weighed_gt = gt_part + noise_part
 
                 # gt_keep_mask 为 1 的地方使用 weighed_gt；为 0 的地方使用原图
-                x_t = gt_keep_mask * ( weighed_gt) + (1 - gt_keep_mask) * (x_t)
+                x_t = gt_keep_mask * (weighed_gt) + (1 - gt_keep_mask) * (x_t)
 
         out = self.p_mean_variance(
             model, x_t, t, model_kwargs=model_kwargs,
@@ -131,10 +131,10 @@ class SamplerRePaint1:
                     if conf.sampling.add_noise_once:
                         t_shift = int(conf.schedule_jump_params.jump_length) - 1
                         assert t_cur - t_last == t_shift, "jump steps have mistakes"
-                        image_after_step = self.q_sample(image_after_step, t=t_last_t+t_shift)
                     else:
                         t_shift = 1
-                        image_after_step = self.undo(image_after_step, t=t_last_t+t_shift)
+                    
+                    # image_after_step = self.undo(image_after_step, t=t_last_t+t_shift)
 
     
     def sample(
@@ -153,7 +153,8 @@ class SamplerRePaint1:
             conf=conf
         ):
             final = sample
-        return final if return_all else final["sample"]
+
+        return  final if return_all else final["sample"]
     
 
 # -------------- DDPM 原始采样器 RePaint+ 版 --------------
@@ -167,6 +168,8 @@ class SamplerRePaint2:
         self.alphas_cumprod = diffusion.alphas_cumprod
         self.betas = diffusion.betas
         self.q_sample = diffusion.q_sample
+        self.sqrt_alphas_cumprod = diffusion.sqrt_alphas_cumprod
+        self.sqrt_one_minus_alphas_cumprod = diffusion.sqrt_one_minus_alphas_cumprod
 
     def condition_mean(self, cond_fn, p_mean_var, x, t, model_kwargs=None):
         """
@@ -181,11 +184,20 @@ class SamplerRePaint2:
         return new_mean
     
     def undo(self, pred_x0, t, noise=None):
-        """ RePaint+ 回跳时的加噪, 直接使用预测的 x_start, 而不是 x_t """
+        """ RePaint 回跳时的加噪"""
         beta = extract(self.betas, t, pred_x0.shape)
         if noise is None:
             noise = torch.randn_like(pred_x0)
         return torch.sqrt(1 - beta) * pred_x0 + torch.sqrt(beta) * noise
+    
+    def undo_new(self, x_0, t, noise=None):
+        """ RePaint+ 回跳时的加噪"""
+        beta = extract(self.betas, t, x_0.shape)
+        if noise is None:
+            noise = torch.randn_like(x_0)
+        result = torch.sqrt(1 - beta) * x_0 + torch.sqrt(beta) * noise
+        
+        return 
 
     def p_sample(
         self, model, x_t, t, clip_denoised=True, denoised_fn=None, cond_fn=None, 
@@ -214,17 +226,19 @@ class SamplerRePaint2:
             clip_denoised=clip_denoised, denoised_fn=denoised_fn,
         )
 
-        if conf.sampling.process_xstart:
-            if pred_xstart is not None:
-                gt = model_kwargs["gt"]
-                gt_keep_mask = model_kwargs.get("gt_keep_mask")
-                out["pred_xstart"] = gt_keep_mask * gt + (1 - gt_keep_mask) * out["pred_xstart"]
-
-        if conf.sampling.fix_seed:
-            torch.manual_seed(1234)
+        # if conf.sampling.fix_seed:
+        #     torch.manual_seed(1234)
 
         noise = torch.randn_like(x_t)
         nonzero_mask = ((t != 0).float().view(-1, *([1] * (len(x_t.shape) - 1))))
+
+        # scale = 1 / torch.sqrt(1 - torch.tensor(self.betas[t]))
+        # out["pred_xstart"] = out["pred_xstart"] * scale
+
+        # out["mean"] = (
+        #     extract(self.sqrt_alphas_cumprod, t - 1, out["pred_xstart"].shape) * out["pred_xstart"] +
+        #     extract(self.sqrt_one_minus_alphas_cumprod, t - 1, out["pred_xstart"].shape) * noise
+        # )
 
         if cond_fn is not None:
             out["mean"] = self.condition_mean(
@@ -254,7 +268,6 @@ class SamplerRePaint2:
 
         pred_xstart = None
         sample_idxs = defaultdict(lambda: 0)
-        addnoise_base = None
 
         if conf.schedule_jump_params:
             # 获取 RePaint 回跳机制下的 新时间步
@@ -289,23 +302,10 @@ class SamplerRePaint2:
                     if conf.sampling.add_noise_once:
                         t_shift = int(conf.schedule_jump_params.jump_length) - 1
                         assert t_cur - t_last == t_shift, "jump steps have mistakes"
-                        # 一次性加噪（跳步）
-                        if conf.sampling.process_xstart:
-                            addnoise_base = pred_xstart
-                        else:
-                            addnoise_base = image_after_step
-                        image_after_step = self.q_sample(addnoise_base, t=t_last_t+t_shift)
                     else:
                         t_shift = 1
-                        # 多次逐步加噪（每次 +1）
-                        if conf.sampling.process_xstart:
-                            if t_last + 1 == t_cur:
-                                addnoise_base = pred_xstart
-                            else:
-                                addnoise_base = image_after_step
-                        else:
-                            addnoise_base = image_after_step
-                        image_after_step = self.undo(addnoise_base, t=t_last_t+t_shift)
+                    
+                    image_after_step = self.undo(image_after_step, t=t_last_t+t_shift)
                     
     def sample(
         self, model, batch_size, image_size, device, clip_denoised=True, model_kwargs=None,

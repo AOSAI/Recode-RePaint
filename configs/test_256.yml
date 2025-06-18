@@ -40,37 +40,58 @@ classifier:
   classifier_resblock_updown: true
   classifier_pool: attention
 
+training:
+  data_dir: "D:\\CodeReproduction\\Recode-RePaint\\data\\train\\drawing_128"
+  schedule_sampler: "uniform"
+  lr: 1.0e-4
+  weight_decay: 0.0
+  lr_anneal_steps: 80000
+  batch_size: 16
+  microbatch: 8
+  ema_rate: "0.9999"
+  log_interval: 20
+  save_interval: 3000
+  resume_checkpoint: ""
+  use_fp16: False
+  fp16_scale_growth: 1.0e-3
+
 sampling:
   clip_denoised: True
   show_progress: true
-  num_samples: 100
+  num_samples: 16
+  batch_size: 8
   use_ddim: False
-  model_path: ./data/pretrained/places256_300000.pt
-  name: template
+  model_path: data\pretrained\places256_300000.pt
+  name: test256
+  fix_seed: False
+  process_xt: true
+  process_xstart: true
   # 仅在条件生成时使用的参数
   classifier_scale: 4.0
   classifier_path: ""
-
-lr_kernel_n_std: 2
-latex_name: RePaint
-method_name: Repaint
-inpa_inj_sched_prev: true
-n_jobs: 1
-print_estimated_vars: true
-inpa_inj_sched_prev_cumnoise: false
 
 schedule_jump_params:
   t_T: 250
   n_sample: 1
   jump_length: 10
   jump_n_sample: 10
+  add_noise_once: false
+
+schedule_jump_params2:
+  t_T: 250 # 总步数
+  jump_length: 10 # 每次回跳多少步
+  jump_sapcing: 10 # 每隔多少步进行一次回跳
+  jump_n_sample: 10
+  add_noise_once: false
+  jump_start_pct: 0.04 # 从 T 的 xx% 开始考虑回跳
+  jump_stop_pct: 1.0 # 到 T 的 xx% 停止考虑回跳
 
 data:
   eval:
     paper_face_mask:
       mask_loader: true
-      gt_path: ./data/datasets/gts/test-section-1
-      mask_path: ./data/datasets/gt_keep_masks/test-section-1
+      gt_path: ./data/datasets/gts-old1/test-global-14
+      mask_path: ./data/datasets/gt_keep_masks-old1/test-global-14
       image_size: 256
       class_cond: false
       deterministic: true
@@ -81,9 +102,10 @@ data:
       batch_size: 1
       return_dataloader: true
       offset: 0
-      max_len: 3
+      max_len: 5
       paths:
-        srs: ./log/256-section-1/inpainted
-        lrs: ./log/256-section-1/gt_masked
-        gts: ./log/256-section-1/gt
-        gt_keep_masks: ./log/256-section-1/gt_keep_mask
+        srs: ./log/test-global-14/inpainted_xt
+        srx: ./log/test-global-14/inpainted_xstart
+        lrs: ./log/test-global-14/gt_masked
+        gts: ./log/test-global-14/gt
+        gt_keep_masks: ./log/test-global-14/gt_keep_mask

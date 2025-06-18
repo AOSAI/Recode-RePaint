@@ -2,3 +2,4 @@ data
 log
 models/__pycache__
 tools/__pycache__
+output/

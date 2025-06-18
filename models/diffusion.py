@@ -236,7 +236,67 @@ class GaussianDiffusion:
             raise NotImplementedError(self.loss_type)
 
         return terms
+
+
+# -------------- DDPM 原始采样器 --------------
+class SamplerDDPM:
+    def __init__(self, diffusion: GaussianDiffusion):
+        self.diffusion = diffusion
+
+        # 用到的属性，重新建立索引引用，不会额外占用显存
+        self.p_mean_variance = diffusion.p_mean_variance
+        self.num_timesteps = diffusion.num_timesteps
+
+    def p_sample(
+        self, model, x_t, t, clip_denoised=True, denoised_fn=None, model_kwargs=None
+    ):
+        """ Sample x_{t-1} from the model at the given timestep. """
+        out = self.p_mean_variance(
+            model, x_t, t, model_kwargs=model_kwargs,
+            clip_denoised=clip_denoised, denoised_fn=denoised_fn,
+        )
+
+        noise = torch.randn_like(x_t)
+        nonzero_mask = ((t != 0).float().view(-1, *([1] * (len(x_t.shape) - 1))))
+        sample = out["mean"] + nonzero_mask * torch.exp(0.5 * out["log_variance"]) * noise
+        return {"sample": sample, "pred_xstart": out["pred_xstart"]}
     
+    def p_sample_loop(
+        self, model, shape, device=None, noise=None, progress=True,
+        clip_denoised=True, denoised_fn=None, model_kwargs=None,
+    ):
+        """ 从纯噪声开始反复调用 p_sample 采样出最终图像 """
+        if noise is not None:
+            x_t = noise
+        else:
+            x_t = torch.randn(shape, device=device)
+        
+        indices = list(reversed(range(self.num_timesteps)))
+        if progress:
+            from tqdm.auto import tqdm
+            indices = tqdm(indices, desc="DDPM", dynamic_ncols=True)
+
+        with torch.no_grad():
+            for i in indices:
+                t = torch.full((shape[0],), i, device=device, dtype=torch.long)
+                x_t = self.p_sample(
+                    model, x_t, t, model_kwargs=model_kwargs,
+                    clip_denoised=clip_denoised, denoised_fn=denoised_fn
+                )["sample"]
+
+        return x_t
+    
+    def sample(
+        self, model, image_size, batch_size=16, clip_denoised=True, model_kwargs=None
+    ):
+        """外部调用入口，封装 p_sample_loop"""
+        shape = (batch_size, 3, image_size, image_size)
+        device = next(model.parameters()).device  # 👈 自动获取模型所在设备
+        return self.p_sample_loop(
+            model, shape, device, 
+            clip_denoised=clip_denoised, model_kwargs=model_kwargs
+        )
+
 
 # -------------- DDIM 加速采样器 --------------
 class SamplerDDIM:
