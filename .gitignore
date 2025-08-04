@@ -3,3 +3,6 @@ log
 models/__pycache__
 tools/__pycache__
 output/
+yolo/images_and_masks/
+yolo/myProject/
+.vscode/

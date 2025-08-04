@@ -1,8 +1,8 @@
 # reproduction for yaml's structure
 
 model:
-  image_size: 256
-  num_channels: 256 # default 256
+  image_size: 128
+  num_channels: 128 # default 128
   num_res_blocks: 2
   channel_mult: ""
   learn_sigma: true
@@ -23,7 +23,7 @@ diffusion:
   steps: 1000
   learn_sigma: true
   sigma_small: False
-  noise_schedule: "linear"
+  noise_schedule: "cosine"
   use_kl: False
   predict_xstart: False
   rescale_timesteps: false
@@ -31,7 +31,7 @@ diffusion:
   timestep_respacing: "250"
 
 classifier:
-  image_size: 256
+  image_size: 128
   classifier_use_fp16: false
   classifier_width: 128
   classifier_depth: 2
@@ -41,28 +41,28 @@ classifier:
   classifier_pool: attention
 
 training:
-  data_dir: "D:\\CodeReproduction\\Recode-RePaint\\data\\train\\drawing_128"
+  data_dir: ""
   schedule_sampler: "uniform"
   lr: 1.0e-4
   weight_decay: 0.0
-  lr_anneal_steps: 80000
-  batch_size: 16
-  microbatch: 8
+  lr_anneal_steps: 300000
+  batch_size: 24
+  microbatch: 12
   ema_rate: "0.9999"
   log_interval: 20
-  save_interval: 3000
+  save_interval: 5000
   resume_checkpoint: ""
-  use_fp16: False
+  use_fp16: false
   fp16_scale_growth: 1.0e-3
 
 sampling:
   clip_denoised: True
   show_progress: true
-  num_samples: 16
+  num_samples: 64
   batch_size: 8
   use_ddim: False
-  model_path: data\pretrained\places256_300000.pt
-  name: test256
+  model_path: repaint\output\person2\model300000.pt
+  name: test128
   fix_seed: False
   process_xt: true
   process_xstart: true
@@ -90,9 +90,9 @@ data:
   eval:
     paper_face_mask:
       mask_loader: true
-      gt_path: ./data/datasets/gts-old1/test-global-14
-      mask_path: ./data/datasets/gt_keep_masks-old1/test-global-14
-      image_size: 256
+      gt_path: ./repaint/data/datasets/gts/5-img128-2
+      mask_path: ./repaint/data/datasets/gt_keep_masks/5-mask128-2
+      image_size: 128
       class_cond: false
       deterministic: true
       random_crop: false
@@ -102,10 +102,10 @@ data:
       batch_size: 1
       return_dataloader: true
       offset: 0
-      max_len: 5
+      max_len: 12
       paths:
-        srs: ./log/test-global-14/inpainted_xt
-        srx: ./log/test-global-14/inpainted_xstart
-        lrs: ./log/test-global-14/gt_masked
-        gts: ./log/test-global-14/gt
-        gt_keep_masks: ./log/test-global-14/gt_keep_mask
+        srs: ./repaint/log/3m_randcircle-1/3-inpainted_xt
+        srx: ./repaint/log/3m_randcircle-1/3-inpainted_xstart
+        lrs: ./repaint/log/3m_randcircle-1/3-gt_masked
+        gts: ./repaint/log/3m_randcircle-1/3-gt
+        gt_keep_masks: ./repaint/log/3m_randcircle-1/3-gt_keep_mask

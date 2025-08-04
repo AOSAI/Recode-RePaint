@@ -148,11 +148,15 @@ class ImageDatasetInpa(Dataset):
 def center_crop_arr(pil_image, image_size):
     # 2.1.1 计算 scale 因子，让最短边缩小到 image_size
     scale = image_size / min(*pil_image.size)
-    new_size = tuple(round(x * scale) for x in pil_image.size)
-    pil_image = pil_image.resize(new_size, resample=Image.BICUBIC, reducing_gap=2.0)
+    if scale != 1.0:
+        new_size = tuple(round(x * scale) for x in pil_image.size)
+        pil_image = pil_image.resize(new_size, resample=Image.BICUBIC, reducing_gap=2.0)
 
     # 2.1.2 中心裁剪成 image_size * image_size 的正方形，并返回
     arr = np.array(pil_image)
-    crop_y = (arr.shape[0] - image_size) // 2
-    crop_x = (arr.shape[1] - image_size) // 2
-    return arr[crop_y: crop_y + image_size, crop_x: crop_x + image_size]
+    if arr.shape[:2] != (image_size, image_size):
+        crop_y = (arr.shape[0] - image_size) // 2
+        crop_x = (arr.shape[1] - image_size) // 2
+        arr = arr[crop_y: crop_y + image_size, crop_x: crop_x + image_size]
+    
+    return arr

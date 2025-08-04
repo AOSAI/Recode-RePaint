@@ -1,8 +1,8 @@
 # reproduction for yaml's structure
 
 model:
-  image_size: 128
-  num_channels: 128
+  image_size: 512
+  num_channels: 512 # default 512
   num_res_blocks: 2
   channel_mult: ""
   learn_sigma: true
@@ -31,7 +31,7 @@ diffusion:
   timestep_respacing: "250"
 
 classifier:
-  image_size: 128
+  image_size: 256
   classifier_use_fp16: false
   classifier_width: 128
   classifier_depth: 2
@@ -40,29 +40,13 @@ classifier:
   classifier_resblock_updown: true
   classifier_pool: attention
 
-training:
-  data_dir: "D:\\CodeReproduction\\Recode-RePaint\\data\\train\\02_drawing_128"
-  schedule_sampler: "uniform"
-  lr: 1.0e-4
-  weight_decay: 0.0
-  lr_anneal_steps: 200000
-  batch_size: 24
-  microbatch: 12
-  ema_rate: "0.9999"
-  log_interval: 50
-  save_interval: 5000
-  resume_checkpoint: ""
-  use_fp16: false
-  fp16_scale_growth: 1.0e-3
-
 sampling:
   clip_denoised: True
   show_progress: true
-  num_samples: 16
-  batch_size: 8
+  num_samples: 100
   use_ddim: False
-  model_path: output\gdm-train-128-3\model180000.pt
-  name: test128
+  model_path: ./data/pretrained/512x512_diffusion.pt
+  name: test_512
   fix_seed: False
   process_xt: true
   process_xstart: true
@@ -75,7 +59,7 @@ schedule_jump_params:
   n_sample: 1
   jump_length: 10
   jump_n_sample: 10
-  add_noise_once: false
+  add_noise_once: true
 
 schedule_jump_params2:
   t_T: 250 # 总步数
@@ -90,9 +74,9 @@ data:
   eval:
     paper_face_mask:
       mask_loader: true
-      gt_path: ./data/datasets/gts-old1/test-global-17
-      mask_path: ./data/datasets/gt_keep_masks-old1/test-global-17
-      image_size: 128
+      gt_path: ./data/datasets/gts-old1/test-global-1
+      mask_path: ./data/datasets/gt_keep_masks-old1/test-global-1
+      image_size: 512
       class_cond: false
       deterministic: true
       random_crop: false
@@ -102,10 +86,10 @@ data:
       batch_size: 1
       return_dataloader: true
       offset: 0
-      max_len: 10
+      max_len: 3
       paths:
-        srs: ./log/test-global-17/inpainted_xt
-        srx: ./log/test-global-17/inpainted_xstart
-        lrs: ./log/test-global-17/gt_masked
-        gts: ./log/test-global-17/gt
-        gt_keep_masks: ./log/test-global-17/gt_keep_mask
+        srs: ./log/test-global-1/inpainted_xt
+        srx: ./log/test-global-1/inpainted_xstart
+        lrs: ./log/test-global-1/gt_masked
+        gts: ./log/test-global-1/gt
+        gt_keep_masks: ./log/test-global-1/gt_keep_mask

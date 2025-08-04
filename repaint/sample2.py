@@ -10,7 +10,7 @@ from tools.script_util import (
 
 def main(sample_type):
     # ------------ 参数字典、硬件设备、日志文件的初始化 ------------
-    config = load_config("./configs/test_128.yml")
+    config = load_config("./repaint/configs/test_128.yml")
     args_s = config['sampling']
     args_m = config['model']
     args_d = config['diffusion']

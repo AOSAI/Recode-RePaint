@@ -151,7 +151,7 @@ def main(conf: conf_base.Default_Conf):
 
 if __name__ == "__main__":
     # 自定义的处理 yaml 参数的对象
-    conf_arg = conf_base.Default_Conf()
+    conf = conf_base.Default_Conf()
     # update 继承自 dict，用于将读取到的字典更新至 conf_arg 中
-    conf_arg.update(load_config("./configs/test_128.yml"))
-    main(conf_arg)
+    conf.update(load_config("./repaint/configs/test_128.yml"))
+    main(conf)

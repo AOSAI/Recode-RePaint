@@ -83,16 +83,18 @@ class ImageDataset(Dataset):
 
         # 3. 计算 scale 因子，让最短边缩小到 resolution
         scale = self.resolution / min(*pil_image.size)
-        pil_image = pil_image.resize(
-            tuple(round(x * scale) for x in pil_image.size), resample=Image.BICUBIC
-        )
+        if scale != 1.0:
+            pil_image = pil_image.resize(
+                tuple(round(x * scale) for x in pil_image.size), resample=Image.BICUBIC
+            )
 
         # 4. 中心裁剪成 resolution * resolution 的正方形
         arr = np.array(pil_image.convert("RGB"))
-        crop_y = (arr.shape[0] - self.resolution) // 2
-        crop_x = (arr.shape[1] - self.resolution) // 2
-        arr = arr[crop_y : crop_y + self.resolution, crop_x : crop_x + self.resolution]
-        
+        if arr.shape[:2] != (self.resolution, self.resolution):
+            crop_y = (arr.shape[0] - self.resolution) // 2
+            crop_x = (arr.shape[1] - self.resolution) // 2
+            arr = arr[crop_y : crop_y + self.resolution, crop_x : crop_x + self.resolution]
+
         # 5. 归一化到 [-1, 1]；如果标签存在，为图像加上标签
         arr = arr.astype(np.float32) / 127.5 - 1
         out_dict = {}

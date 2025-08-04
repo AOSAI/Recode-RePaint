@@ -9,7 +9,7 @@ from tools.train_util import TrainLoop
 
 def main():
     # ------------ 参数字典、硬件设备、日志文件的初始化 ------------
-    config = load_config("./configs/test_128.yml")
+    config = load_config("repaint/configs/test_256.yml")
     args_t = config['training']
     args_m = config['model']
     args_d = config['diffusion']
